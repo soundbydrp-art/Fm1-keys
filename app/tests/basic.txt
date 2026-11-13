@@ -1,0 +1,111 @@
+# FM-1 KEYS in the host simulator: python3 base/tools/build.py app --host, then
+#   "app/build/host/fm-1 keys_host" app/tests/basic.txt app/build/host
+wait 600
+expect page 0
+expect eng 0
+expect patch 0
+shot boot.png
+# a key: one tine piano voice, sounding
+key 7 down 110
+wait 200
+expect voices 1
+expect loud 1
+shot keys.png
+key 7 up
+wait 2500
+expect voices 0
+# MIDI in: a chord of three, the sustain pedal holds it after note-off
+midi 90 3C 64
+midi 90 40 64
+midi 90 43 64
+wait 100
+expect voices 3
+midi B0 40 7F
+midi 80 3C 00
+midi 80 40 00
+midi 80 43 00
+wait 300
+expect voices 3
+midi B0 40 00
+wait 3000
+expect voices 0
+# patches: PRESET steps, the engine follows
+turn PRESET 4
+wait 30
+expect patch 4
+expect eng 1
+expect res 0
+key 7 down 100
+wait 300
+expect voices 1
+expect loud 1
+shot string.png
+key 7 up
+wait 1500
+# a tube (REED), held: it keeps sounding while held
+turn PRESET 4
+wait 30
+expect patch 8
+expect res 1
+key 7 down 100
+wait 600
+expect loud 1
+shot tube.png
+key 7 up
+wait 1500
+# modal (MARIMBA)
+turn PRESET 2
+wait 30
+expect patch 10
+expect res 2
+key 7 down 100
+wait 150
+expect loud 1
+shot modal.png
+key 7 up
+wait 2000
+# chords: ARP goes to the CHORD page, again turns chords on; one key gives four notes
+tap ARP
+wait 30
+expect page 2
+tap ARP
+wait 30
+expect chord 1
+key 7 down 100
+wait 100
+expect chordn 4
+expect root 60
+expect voices 4
+shot chord.png
+key 7 up
+wait 30
+# the second degree in C major: D minor
+key 9 down 100
+wait 100
+expect root 62
+shot chord2.png
+key 9 up
+wait 2000
+# pages and the engine knob
+turn SELECT 1
+wait 30
+expect page 3
+shot fx.png
+tap HOME
+wait 30
+expect page 0
+turn ALGO -3
+wait 30
+expect eng 0
+turn K1 5
+wait 30
+expect dirty 1
+tap SAVE
+wait 30
+expect dirty 0
+# the audition plays through on its own
+tap PLAY
+wait 3000
+expect loud 1
+tap PLAY
+wait 2500

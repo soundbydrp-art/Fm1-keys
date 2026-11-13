@@ -1,0 +1,37 @@
+# screenshots for the docs: python3 base/tools/build.py app --host, then
+#   "app/build/host/fm-1 keys_host" app/tests/screens.txt app/build/host
+wait 500
+midi 90 30 70
+midi 90 37 64
+midi 90 3C 78
+midi 90 40 60
+midi 90 47 55
+wait 120
+shot screen-keys.png
+midi B0 7B 00
+wait 400
+turn PRESET 7
+wait 30
+key 7 down 100
+wait 700
+shot screen-bowed.png
+key 7 up
+wait 600
+turn PRESET 5
+wait 30
+key 7 down 100
+key 11 down 100
+wait 90
+shot screen-glass.png
+key 7 up
+key 11 up
+wait 400
+turn PRESET -9
+wait 30
+tap ARP
+wait 30
+key 9 down 100
+wait 200
+shot screen-chord.png
+key 9 up
+wait 300
