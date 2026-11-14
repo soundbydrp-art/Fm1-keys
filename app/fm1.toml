@@ -9,10 +9,10 @@ emu = ["midi"]
 # the site
 tagline = "a tine electric piano, strings, tubes and struck materials, with chords"
 repo = "https://github.com/soundbydrp-art/fm1-keys"
-licence = "All rights reserved"
-credits = "Built on fm1-base (MPL-2.0) by Charles Vestal and felucca-bsp by Hügelton Instruments."
+licence = "GPL-3.0-only"
+credits = "The electric piano is the Rhodes engine of Frodhes by Leonardo Mirabal (GPL-3.0-only). Built on fm1-base (MPL-2.0) by Charles Vestal and felucca-bsp by Hügelton Instruments."
 author = "Andy"
-description = "Physical models for the FM-1: a tine electric piano with a modelled pickup, and an exciter-and-resonator voice (pluck, strike, bow, blow) on strings, tubes and materials from wood to glass, metal and skin. One-finger chords in any key, voice-led, with strum."
+description = "Physical models for the FM-1: the physically modelled Rhodes of Frodhes in four types, and an exciter-and-resonator voice (pluck, strike, bow, blow) on strings, tubes and materials from wood to glass, metal and skin. One-finger chords in any key, voice-led, with strum."
 tags = ["synth", "chords", "experimental"]
 install = ""
 site = "https://soundbydrp-art.github.io/fm1-keys/"

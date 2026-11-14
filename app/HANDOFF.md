@@ -1,6 +1,6 @@
 # FM-1 KEYS — handoff
 
-Paste this into a new session to resume. Last updated 2026-11-14 (0.1-dev, emulator only; distortion fix after Andy's first listen).
+Paste this into a new session to resume. Last updated 2026-11-14 (0.1-dev, emulator only; KEYS is now Frodhes's Rhodes engine, licence GPL-3.0-only).
 
 ## What it is
 Andy's own firmware for his M-VAVE FM-1 (newer hardware: UC25HQ80 flash, JEDEC B3 60 14 — current fm1-base accepts
@@ -26,11 +26,20 @@ soundbydrp-art.github.io/fm1-keys — the emulator; demo audio at /audio/fm1-key
 
 ## Design (as built)
 - 8 voices, steal = quietest released else oldest, 2 ms fade before the stolen note starts. Same note restrikes.
-- KEYS: 4 complex-oscillator modes (tine f0, tonebar f0×1.0011±, cantilever overtones ×6.27 and ×17.55), half-sine
-  hammer (contact shorter with BELL and velocity, capped at 0.45 period), pickup = flux slope (x+o)/((x+o)²+1)^1.5 ×
-  velocity, normalised to unit small-signal gain; A (swing) from velocity^1.6 and BARK, O (offset) from TONE.
-  Damper on note-off (fundamental by DAMPER, overtones faster). Hammer knock = filtered noise burst. FX: tanh drive,
-  stereo tremolo.
+- KEYS = Frodhes's Rhodes engine (Leonardo Mirabal, GPL-3.0-only), vendored unchanged in `app/frodhes/` (see its
+  README: commit 8cf3ea3, v0.9.11). Andy chose this on 2026-11-14 after hearing my own tine model as distorted and
+  Frodhes as beautiful; the whole firmware is therefore GPL-3.0-only (LICENSE at the root; donationware is fine).
+  `app.c` includes `frodhes/rhodes.c` with DINGHY_HOST defined (plain build). Notes: `do_note_on` posts `rh_note_on`
+  when the model is a piano TYPE; `do_note_off` always posts `rh_note_off`. `keys_apply()` (every frame) maps the knobs
+  (0..100 here → 0..127 there, 50 = its middle) to rh_tone_off / rh_bark_s,g / rh_bell / rh_k_decay / rh_k_rel /
+  rh_type, NOISE fixed at its default 48, SPREAD 56, then `rh_cc_poll()`. `app_render` calls `rh_render(keys_mono, n)`
+  (Q15, n = 128) and mixes mid ± side at KEYS_G = 2.1/32768 (hardest note ≈ 0.45 in the mix). This app's tremolo, amp,
+  tone and reverb follow. ALGO = model: STAGE 77, SUITCASE, EARLY FELT, BELL DYNO, STRING, TUBE, MODAL. Measured: in
+  tune within 4 cents C2–C6, real velocity dynamics (v70 0.03 → v127 0.12 before gain). The tine display reads
+  Frodhes's `rv[]` voices (lvl / lvl0, held).
+  Not used from Frodhes: its effects, HAMMER/NOISE/SPREAD knobs, RESPONSE, bars (vibes/marimba), two-core split.
+  Device risks to check on hardware: Frodhes places its hot loops and tables in RAM/pool sections and uses core 1 for
+  effects; here it runs in the plain build from flash on one core, with ~25 KB of its state in .bss.
 - PHYS: STRING = one-loop waveguide (one-pole LP for damping, first-order allpass for stiffness, tuned by the loop
   filters' phase delay); bowed string = STK-style two delay lines either side of the bow with the bow table (in tune
   to ±3 cents). TUBE = inverting one-loop bore with a reed table (blow) or noise. MODAL = 12 modes, material table
@@ -40,7 +49,7 @@ soundbydrp-art.github.io/fm1-keys — the emulator; demo audio at /audio/fm1-key
 - Gain staging (fixed 2026-11-14 — Andy heard most patches as distorted): the loudest single note of each path peaks
   near 0.3 in the mix (`v->g` in voice_start; host-only `expect bus` reports the mix peak ×1000 and resets it), chords
   of 4 peak 0.26–0.83, the output soft limit is tanh(1.3x). The amp (DRIVE) is unity when soft: tanh(xg)·(1/g + ½(1−1/g)).
-  The pickup used to fold the wave (the tine swung past the flux slope's peak) and ignored velocity; now the swing is
+  (My own tine model, now removed:) the pickup used to fold the wave (the tine swung past the flux slope's peak) and ignored velocity; now the swing is
   O·(0.15 + 0.55·BARK)·velocity around O = 0.3 + 0.5·TONE, always on the near side of the pole, and the output scales
   with velocity: soft notes are clean (3rd harmonic −59 dB at C4), BARK adds a lopsided 2nd harmonic (−25 dB).
 - Measured (tests and renders): KEYS, strings, tube, bowed string within ±5 cents C2–C6; four-note chords peak
@@ -56,7 +65,9 @@ soundbydrp-art.github.io/fm1-keys — the emulator; demo audio at /audio/fm1-key
 - Session (store object at 0xFC000): magic KEY1, params, patch, octave; validated on load.
 
 ## Not done yet (next steps, in order)
-1. Andy's ears on the re-rendered tour (docs/audio) after the distortion fix: KEYS character, which patches need work.
+1. Andy's ears on the tour with Frodhes's piano; then refine the PHYS patches with the same lessons (per-register
+   decay, highs dying faster, body/cabinet filters after the resonator, 2× oversampled reed/bow, per-note variation,
+   6 ms steal fades) — research notes in the 2026-11-14 session.
 2. BASS engine for hip-hop: 808 (sine + pitch drop + drive), Reese (detuned saws), FM bass, pluck bass; glide/mono;
    "print mode": evenly spaced one-shots up a scale to sample straight into the MPC 1000 (it samples at 40 kHz,
    ~26 s per sample in stock memory, so short notes with gaps for chopping).
@@ -64,8 +75,7 @@ soundbydrp-art.github.io/fm1-keys — the emulator; demo audio at /audio/fm1-key
    attack on all engines).
 4. Device CPU: measure on hardware (the unity build is -Os; if tight, move the DSP to an `o2` unit or drop NMODE to 8).
 5. Release setup: release.yml, `install` and a signed package; check `id_prefix` "FM-1_58" is unused on The Firmware
-   Hub; licence line (donationware) to decide.
+   Hub. Licence is settled: GPL-3.0-only.
 
 ## Andy's preferences that apply
-Check work before handing over (one iteration); keep this file current; donationware likely, so the licence in
-fm1.toml ("All rights reserved") is a placeholder. I'm "Wren" to him.
+Check work before handing over (one iteration); keep this file current; donationware likely (compatible with the GPL). I'm "Wren" to him.

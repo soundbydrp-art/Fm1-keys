@@ -2,9 +2,10 @@
 
 FM-1 KEYS turns the M-VAVE FM-1 into a physically modelled keyboard. It has two engines and a chord engine:
 
-- **KEYS**, a tine electric piano. A felt hammer strikes a tine and its tonebar, and the tine swings past an
-  electromagnetic pickup. Play softly and it's round and clean. Dig in, or turn up BARK, and the pickup bends the
-  sound into the growl of a stage piano.
+- **KEYS**, a physically modelled Rhodes. It is the engine of [Frodhes](https://github.com/leonardoMirabal/frodhes)
+  by Leonardo Mirabal: a hammer, the tine and tonebar fitted key by key to a 1977 Stage 73, and the magnetic pickup.
+  Play softly and it's round and clean; dig in and it barks. There are four types: STAGE 77, SUITCASE, EARLY FELT and
+  BELL DYNO.
 - **PHYS**, an exciter played into a resonator. The exciters are pluck, strike, bow, blow and noise. The resonators
   are a string, a reed tube, or a struck body that morphs from wood to glass to metal to skin.
 - **CHORDS**: one key plays the chord on that degree of the key and scale you choose. Chords have 3 to 6 notes and
@@ -34,7 +35,7 @@ This is a test build (0.1-dev). It runs in the browser emulator, and nothing her
 | SELECT | turns through the pages: SOUND, TONE, CHORD, FX |
 | HOME / EDIT / ARP / FX | jump to SOUND / TONE / CHORD / FX |
 | ARP (on CHORD) | chords on or off |
-| ALGORITHM | the engine: KEYS, STRING, TUBE, MODAL |
+| ALGORITHM | the model: STAGE 77, SUITCASE, EARLY FELT, BELL DYNO (the piano's types), then STRING, TUBE, MODAL |
 | PRESETS | the 15 factory patches |
 | KNOB1-4 | the four controls in the footer |
 | OCT- / OCT+ | the keys' octave |
@@ -45,8 +46,8 @@ This is a test build (0.1-dev). It runs in the browser emulator, and nothing her
 
 | Page | KEYS | PHYS |
 |---|---|---|
-| SOUND | TONE (where the tine sits at the pickup: warm to nasal), BARK (how hard the pickup is driven), BELL (the hammer's hardness: the bell in the attack), DECAY | EXCITE (pluck, strike, bow, blow, noise), MATERIAL (string: stiffness; tube: the reed; body: wood, glass, metal, skin), BRIGHT, DECAY |
-| TONE | TREMOLO (stereo), RATE, DRIVE (the amp), DAMPER (how fast notes stop) | POSITION (where it's plucked, struck or bowed), PRESSURE (bow and breath), ATTACK, RELEASE |
+| SOUND | TONE (where the tine sits at the pickup), BARK (how close the pickup is), BELL (the overtones of the attack), DECAY (50 is the real instrument's) | EXCITE (pluck, strike, bow, blow, noise), MATERIAL (string: stiffness; tube: the reed; body: wood, glass, metal, skin), BRIGHT, DECAY |
+| TONE | TREMOLO (stereo), RATE, DRIVE (the amp), DAMPER (how fast notes stop; 50 is the real instrument's) | POSITION (where it's plucked, struck or bowed), PRESSURE (bow and breath), ATTACK, RELEASE |
 | CHORD | KEY, SCALE (major, minor, dorian, phrygian, lydian, mixolydian, harmonic minor), NOTES (3 to 6), VOICING (close, open, voice-led, voice-led with a bass note) | same |
 | FX | REVERB, ROOM, STRUM (the gap between a chord's notes), TONE | same |
 
@@ -59,3 +60,9 @@ AIR TUBE, MARIMBA, GLASS BOW, TEMPLE BELL, HAND DRUM, BREATH PAD.
 
 Notes come in on any channel, over USB and the TRS input. The sustain pedal (CC64) holds notes, and CC123 lets them
 all go. With chords on, every incoming note plays its chord, so a MIDI keyboard or a sequencer plays chords too.
+
+## Licence
+
+FM-1 KEYS is free software under the GNU General Public License, version 3 only. The electric piano is Frodhes's
+Rhodes engine by Leonardo Mirabal (GPL-3.0-only); the platform is fm1-base by Charles Vestal (MPL-2.0) on felucca-bsp
+by Hügelton Instruments.

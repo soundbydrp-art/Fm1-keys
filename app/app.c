@@ -1,19 +1,26 @@
-/* FM-1 KEYS. Copyright (C) 2026 Andy. All rights reserved.
- * Two physical models and a chord engine for the FM-1:
- *  - KEYS: a tine electric piano. A felt hammer (a half-sine force pulse; harder hits are shorter, so brighter) rings
- *    four modes: the tine's fundamental, the tonebar coupled to it (a hair off, so they beat), and the tine's two
- *    cantilever overtones (x6.27, x17.55: the bell of the attack). The tine's motion passes an electromagnetic pickup,
- *    modelled as the flux's slope at the tine's place times its speed: small swings come out clean, big ones (hard
- *    playing, a narrow gap) bend into harmonics, and where the tine sits against the pole (TONE) sets warm or nasal.
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* FM-1 KEYS. Copyright (C) 2026 Andy. The tine piano is Frodhes's Rhodes engine, Copyright (C) 2026 Leonardo Mirabal
+ * (app/frodhes/, GPL-3.0-only), so the whole firmware is GPL-3.0-only.
+ *  - KEYS: Frodhes's physically modelled Rhodes (hammer pulse, the tine's modes fitted per key to a 1977 Stage 73,
+ *    the magnetic pickup, its load), four TYPEs: STAGE 77, SUITCASE, EARLY FELT, BELL DYNO. TONE, BARK, BELL, DECAY and
+ *    DAMPER are its voicing knobs; the tremolo, amp, tone and reverb after it are this app's.
  *  - PHYS: an exciter (pluck, strike, bow, blow, noise) into a resonator: a waveguide string (loop filter for damping,
  *    an allpass for stiffness, tuned exactly), a reed tube (clarinet-like bore), or a modal body of 12 modes whose
  *    ratios and damping morph from wood to glass to metal to skin.
  *  - CHORDS: one key plays the diatonic chord on its scale degree, 3 to 6 notes, close, open, voice-led, or voice-led
  *    over a bass note, strummed if asked.
- * Pages: SOUND, TONE, CHORD, FX (SELECT turns; HOME, EDIT, ARP, FX jump). ALGO picks the engine, PRESET the patch,
+ * Pages: SOUND, TONE, CHORD, FX (SELECT turns; HOME, EDIT, ARP, FX jump). ALGO picks the model, PRESET the patch,
  * K1..K4 the four controls drawn at the bottom. PLAY auditions the patch with a progression. MIDI in plays it.
  * Part of fm1-base's unity build (gfx.c, announce.c and lib/touch in scope). */
 #include "fastmath.h"
+
+/* Frodhes's engine, unchanged (app/frodhes/README.md), in its plain build: no section placement, no register hint
+ * (the same integers). It owns its voices; this app posts its notes from the render and mixes rh_render's block */
+#define DINGHY_HOST 1
+#include "frodhes/rhodes.c"
+#include "frodhes/fx_tables.h"                 /* its knobs' laws (KN_P64, KN_P32, the noises' levels) */
+#undef DINGHY_HOST
+
 
 #define NV 8
 #define NMODE 12
@@ -21,7 +28,7 @@
 #define PI_F 3.14159265f
 #define TWO_PI 6.28318531f
 #define DLMAX 2048u
-#define SES_MAGIC 0x3159454Bu            /* "KEY1" */
+#define SES_MAGIC 0x3259454Bu            /* "KEY2" */
 
 enum { ENG_KEYS, ENG_PHYS };
 enum { RES_STRING, RES_TUBE, RES_MODAL };
@@ -36,6 +43,7 @@ typedef struct {
     uint8_t mat, bright, decay, pos, press, atk, rel;                           /* PHYS */
     uint8_t ch_on, ch_key, ch_scale, ch_notes, ch_voice;                        /* CHORD */
     uint8_t rev, room, strum, tone;                                             /* FX */
+    uint8_t k_type;                                                             /* KEYS: Frodhes's TYPE */
 } params_t;
 
 typedef struct { uint32_t magic; params_t p; uint8_t patch; int8_t oct; uint8_t rsv[2]; } session_t;
@@ -45,21 +53,21 @@ static uint8_t ses_dirty;
 
 /*                      eng res exc  tone bark bell dec trem rate drv rel  mat brt dec pos prs atk rel  ch key sc  n  v  rev room str tone */
 static const params_t FACTORY[] = {
-    /* SUITCASE    */ {0, 0, 0,  70, 30, 35, 55, 45, 35, 15, 35,  30, 50, 50, 25, 50, 10, 30,  0, 0, 0, 4, 2,  25, 50, 0, 60},
-    /* STAGE BARK  */ {0, 0, 0,  35, 80, 45, 50, 0, 30, 45, 30,   30, 50, 50, 25, 50, 10, 30,  0, 0, 0, 4, 2,  15, 40, 0, 75},
-    /* BELL TINES  */ {0, 0, 0,  55, 25, 85, 70, 25, 50, 10, 45,  30, 50, 50, 25, 50, 10, 30,  1, 0, 0, 5, 2,  40, 60, 20, 80},
-    /* NEO SOUL    */ {0, 0, 0,  62, 50, 40, 60, 30, 45, 25, 35,  30, 50, 50, 25, 50, 10, 30,  1, 2, 2, 4, 3,  30, 55, 12, 65},
-    /* NYLON       */ {1, 0, 0,  50, 40, 40, 50, 0, 40, 0, 30,    15, 45, 45, 25, 0, 0, 30,    0, 0, 0, 4, 2,  20, 45, 0, 70},
-    /* KOTO        */ {1, 0, 0,  50, 40, 40, 50, 0, 40, 0, 30,    45, 80, 55, 12, 0, 0, 25,    0, 9, 6, 3, 1,  25, 50, 0, 85},
-    /* HARP        */ {1, 0, 0,  50, 40, 40, 50, 0, 40, 0, 30,    25, 55, 80, 40, 0, 0, 60,    1, 0, 0, 4, 1,  45, 70, 45, 75},
-    /* BOWED       */ {1, 0, 2,  50, 40, 40, 50, 0, 40, 0, 30,    30, 55, 70, 15, 60, 35, 45,  0, 0, 1, 3, 2,  40, 65, 0, 70},
-    /* REED        */ {1, 1, 3,  50, 40, 40, 50, 0, 40, 0, 30,    50, 55, 60, 30, 65, 20, 25,  0, 0, 0, 4, 2,  25, 50, 0, 75},
-    /* AIR TUBE    */ {1, 1, 4,  50, 40, 40, 50, 0, 40, 0, 30,    30, 70, 70, 30, 50, 45, 40,  0, 0, 0, 4, 2,  45, 65, 0, 80},
-    /* MARIMBA     */ {1, 2, 1,  50, 40, 40, 50, 0, 40, 0, 30,    6, 50, 40, 30, 0, 0, 30,     0, 0, 0, 4, 2,  20, 45, 0, 80},
-    /* GLASS BOW   */ {1, 2, 2,  50, 40, 40, 50, 0, 40, 0, 30,    33, 60, 75, 35, 55, 60, 60,  1, 0, 4, 3, 2,  55, 75, 0, 85},
-    /* TEMPLE BELL */ {1, 2, 1,  50, 40, 40, 50, 0, 40, 0, 30,    67, 65, 85, 35, 0, 0, 50,    0, 0, 0, 4, 2,  50, 80, 0, 85},
-    /* HAND DRUM   */ {1, 2, 1,  50, 40, 40, 50, 0, 40, 0, 30,    95, 40, 30, 20, 0, 0, 20,    0, 0, 0, 4, 2,  15, 35, 0, 75},
-    /* BREATH PAD  */ {1, 2, 4,  50, 40, 40, 50, 0, 40, 0, 30,    40, 45, 80, 30, 50, 80, 75,  1, 0, 1, 4, 2,  70, 85, 30, 70},
+    /* SUITCASE    */ {0, 0, 0,  50, 50, 50, 50, 45, 35, 0, 50,  30, 50, 50, 25, 50, 10, 30,  0, 0, 0, 4, 2,  25, 50, 0, 60, 1},
+    /* STAGE BARK  */ {0, 0, 0,  50, 72, 50, 50, 0, 30, 25, 50,   30, 50, 50, 25, 50, 10, 30,  0, 0, 0, 4, 2,  15, 40, 0, 75, 0},
+    /* BELL TINES  */ {0, 0, 0,  58, 45, 70, 55, 25, 50, 0, 50,  30, 50, 50, 25, 50, 10, 30,  1, 0, 0, 5, 2,  40, 60, 20, 80, 3},
+    /* NEO SOUL    */ {0, 0, 0,  45, 55, 45, 50, 30, 45, 10, 50,  30, 50, 50, 25, 50, 10, 30,  1, 2, 2, 4, 3,  30, 55, 12, 65, 2},
+    /* NYLON       */ {1, 0, 0,  50, 50, 50, 50, 0, 40, 0, 50,    15, 45, 45, 25, 0, 0, 30,    0, 0, 0, 4, 2,  20, 45, 0, 70, 0},
+    /* KOTO        */ {1, 0, 0,  50, 50, 50, 50, 0, 40, 0, 50,    45, 80, 55, 12, 0, 0, 25,    0, 9, 6, 3, 1,  25, 50, 0, 85, 0},
+    /* HARP        */ {1, 0, 0,  50, 50, 50, 50, 0, 40, 0, 50,    25, 55, 80, 40, 0, 0, 60,    1, 0, 0, 4, 1,  45, 70, 45, 75, 0},
+    /* BOWED       */ {1, 0, 2,  50, 50, 50, 50, 0, 40, 0, 50,    30, 55, 70, 15, 60, 35, 45,  0, 0, 1, 3, 2,  40, 65, 0, 70, 0},
+    /* REED        */ {1, 1, 3,  50, 50, 50, 50, 0, 40, 0, 50,    50, 55, 60, 30, 65, 20, 25,  0, 0, 0, 4, 2,  25, 50, 0, 75, 0},
+    /* AIR TUBE    */ {1, 1, 4,  50, 50, 50, 50, 0, 40, 0, 50,    30, 70, 70, 30, 50, 45, 40,  0, 0, 0, 4, 2,  45, 65, 0, 80, 0},
+    /* MARIMBA     */ {1, 2, 1,  50, 50, 50, 50, 0, 40, 0, 50,    6, 50, 40, 30, 0, 0, 30,     0, 0, 0, 4, 2,  20, 45, 0, 80, 0},
+    /* GLASS BOW   */ {1, 2, 2,  50, 50, 50, 50, 0, 40, 0, 50,    33, 60, 75, 35, 55, 60, 60,  1, 0, 4, 3, 2,  55, 75, 0, 85, 0},
+    /* TEMPLE BELL */ {1, 2, 1,  50, 50, 50, 50, 0, 40, 0, 50,    67, 65, 85, 35, 0, 0, 50,    0, 0, 0, 4, 2,  50, 80, 0, 85, 0},
+    /* HAND DRUM   */ {1, 2, 1,  50, 50, 50, 50, 0, 40, 0, 50,    95, 40, 30, 20, 0, 0, 20,    0, 0, 0, 4, 2,  15, 35, 0, 75, 0},
+    /* BREATH PAD  */ {1, 2, 4,  50, 50, 50, 50, 0, 40, 0, 50,    40, 45, 80, 30, 50, 80, 75,  1, 0, 1, 4, 2,  70, 85, 30, 70, 0},
 };
 static const char *const PATCH_NAME[] = {"SUITCASE", "STAGE BARK", "BELL TINES", "NEO SOUL", "NYLON", "KOTO", "HARP",
                                          "BOWED", "REED", "AIR TUBE", "MARIMBA", "GLASS BOW", "TEMPLE BELL", "HAND DRUM",
@@ -71,7 +79,7 @@ static int params_valid(const params_t *q)
     const uint8_t *b = (const uint8_t *)q;
     uint32_t i;
     if (q->eng > 1 || q->res > 2 || q->exc > 4 || q->ch_on > 1 || q->ch_key > 11 || q->ch_scale > 6 ||
-        q->ch_notes < 3 || q->ch_notes > 6 || q->ch_voice > 3)
+        q->ch_notes < 3 || q->ch_notes > 6 || q->ch_voice > 3 || q->k_type > 3)
         return 0;
     for (i = 3; i < sizeof *q; i++)
         if (b[i] > 100) return 0;
@@ -81,10 +89,10 @@ static int params_valid(const params_t *q)
 /* ======================================================================== shared with the render === */
 /* events from the main loop: bits 0..6 note, 7 off, 8..14 velocity, 16..31 delay in samples (strum) */
 #define EVQ 64u
-static volatile uint32_t evq[EVQ], ev_w, ev_r;
-static void ev_push(uint32_t e) { uint32_t w = ev_w; if (w - ev_r < EVQ) { evq[w % EVQ] = e; ev_w = w + 1u; } }
-static void note_on_ev(uint32_t n, uint32_t vel, uint32_t delay) { ev_push((n & 127u) | (vel & 127u) << 8 | (delay & 0xFFFFu) << 16); }
-static void note_off_ev(uint32_t n, uint32_t delay) { ev_push((n & 127u) | 128u | (delay & 0xFFFFu) << 16); }
+static volatile uint32_t kq[EVQ], kq_w, kq_r;
+static void kq_push(uint32_t e) { uint32_t w = kq_w; if (w - kq_r < EVQ) { kq[w % EVQ] = e; kq_w = w + 1u; } }
+static void note_on_ev(uint32_t n, uint32_t vel, uint32_t delay) { kq_push((n & 127u) | (vel & 127u) << 8 | (delay & 0xFFFFu) << 16); }
+static void note_off_ev(uint32_t n, uint32_t delay) { kq_push((n & 127u) | 128u | (delay & 0xFFFFu) << 16); }
 
 typedef struct {
     uint8_t on, note, gate, kill, eng, res, exc;
@@ -93,8 +101,7 @@ typedef struct {
     /* modes: z = z * c + x (complex), displacement = Im z */
     float zr[NMODE], zi[NMODE], cr[NMODE], ci[NMODE], w[NMODE], wt[NMODE], t60[NMODE];
     uint8_t nm;
-    /* KEYS */
-    float A, O, pnorm, vnorm, xprev, tc, pamp, thump;
+    float tc, pamp;
     /* waveguide */
     float dlen, lp, lpc, apc, apx, apy, loopg, nlen, bph, bc, bt60;
     uint8_t pm;
@@ -204,41 +211,17 @@ static void voice_start(voice_t *v, uint32_t note, float vel, int retrig)
     float f0 = mtof((float)note), n = (float)note;
     uint32_t m;
     v->note = (uint8_t)note; v->vel = vel; v->f0 = f0; v->gate = 1; v->t = 0;
-    v->eng = P.eng; v->res = P.res; v->exc = P.exc;
+    v->eng = ENG_PHYS; v->res = P.res; v->exc = P.exc;
     v->age = ++age_ctr;
     if (!retrig) {
         for (m = 0; m < NMODE; m++) v->zr[m] = v->zi[m] = 0.0f;
-        v->xprev = 0.0f; v->lp = v->apx = v->apy = 0.0f; v->dw = 0; v->hp_x = v->hp_y = 0.0f;
+        v->lp = v->apx = v->apy = 0.0f; v->dw = 0; v->hp_x = v->hp_y = 0.0f;
         v->env = 0.0f; v->ex_lp = 0.0f; v->lvl = 0.0f;
         v->rng = 0x9E3779B9u ^ (note * 2654435761u) ^ age_ctr;
         for (m = 0; m < DLMAX; m++) wg[v - vc][m] = 0.0f;
         for (m = 0; m < DLMAX / 2u; m++) wgn[v - vc][m] = 0.0f;
     }
-    if (v->eng == ENG_KEYS) {
-        /* ring times by register: low tines sing for seconds, high ones are short */
-        float dk = 0.35f + (float)P.k_decay / 100.0f * 2.2f;
-        float tf = fm_clampf(9.0f * fm_exp2f(-(n - 33.0f) / 20.0f), 0.7f, 14.0f) * dk;
-        float bell = (float)P.k_bell / 100.0f;
-        float r2 = 6.27f - (n - 60.0f) * 0.012f;                 /* the overtone ratio drifts with tine length */
-        float det = 1.0f + 0.0011f + 0.0006f * fm_sinf(n * 1.7f);   /* the tonebar a hair off: a slow beat */
-        v->nm = 4;
-        mode_set(v, 0, f0, tf, 1.0f);
-        mode_set(v, 1, f0 * det, tf * 1.3f, 0.55f);
-        mode_set(v, 2, f0 * r2, 0.12f * tf + 0.15f, 0.25f + bell * 1.1f);
-        mode_set(v, 3, f0 * 17.55f, 0.05f * tf + 0.04f, (0.15f + bell * 0.9f) * 0.6f);
-        /* the hammer: harder and with more BELL a shorter contact, so more of the upper modes */
-        v->tc = (0.6f + (1.0f - bell) * 2.6f) * (1.0f - 0.45f * vel) * 0.001f * FS;
-        v->tc = fm_clampf(v->tc, 4.0f, 0.45f * FS / f0);   /* never longer than half a period: that cancels the note */
-        v->pamp = PI_F / (2.0f * v->tc);
-        /* the pickup: the swing against the gap grows with velocity and BARK; TONE sets where the tine sits */
-        /* (the tine's swing, in units of the gap, grows with velocity; it stays on the near side of the pole, so a
-         * hard note bends the wave lopsided, the bark, but never folds it) */
-        v->O = 0.3f + (float)P.k_tone / 100.0f * 0.5f;
-        v->A = v->O * (0.15f + (float)P.k_bark / 100.0f * 0.55f) * vel;
-        v->pnorm = (v->O * v->O + 1.0f) * fm_sqrtf(v->O * v->O + 1.0f) / v->O;
-        v->vnorm = FS / (TWO_PI * f0);
-        v->thump = vel * 0.05f;
-    } else {
+    {
         float bright = (float)P.bright / 100.0f, dec = (float)P.decay / 100.0f, mat = (float)P.mat / 100.0f;
         if (v->res == RES_MODAL) {
             float ratio[NMODE], damp[NMODE], ts, pos = 0.08f + (float)P.pos / 100.0f * 0.42f, sum = 0.0f;
@@ -293,8 +276,7 @@ static void voice_start(voice_t *v, uint32_t note, float vel, int retrig)
     }
     /* each path's level, measured (expect bus): the loudest single note peaks near 0.3 in the mix, so a six-note
      * chord still has headroom before the amp and the output's soft limit */
-    if (v->eng == ENG_KEYS) v->g = 0.85f;
-    else if (v->res == RES_MODAL) v->g = v->exc <= EXC_STRIKE ? 1.0f : v->exc == EXC_BOW ? 1.25f : 1.3f;
+    if (v->res == RES_MODAL) v->g = v->exc <= EXC_STRIKE ? 1.0f : v->exc == EXC_BOW ? 1.25f : 1.3f;
     else if (v->res == RES_TUBE) v->g = v->exc == EXC_BLOW ? 0.46f : 0.24f;
     else v->g = v->exc == EXC_BOW ? 0.12f : v->exc <= EXC_STRIKE ? 0.75f : 0.5f;
     v->on = 1;
@@ -316,8 +298,10 @@ static voice_t *voice_for(uint32_t note)
 
 static void do_note_on(uint32_t note, uint32_t vel7)
 {
-    voice_t *v = voice_for(note);
+    voice_t *v;
     float vel = (float)(vel7 ? vel7 : 1u) / 127.0f;
+    if (P.eng == ENG_KEYS) { rh_note_on(note, vel7 ? vel7 : 1u); return; }   /* the tine piano's own voices */
+    v = voice_for(note);
     if (!v) return;
     if (v->on && v->note == note) { voice_start(v, note, vel, 1); return; }
     if (v->on) { v->kill = 1; v->pend_note = (uint8_t)note; v->pend_vel = (uint8_t)vel7; return; }   /* fades first */
@@ -327,14 +311,12 @@ static void do_note_on(uint32_t note, uint32_t vel7)
 static void do_note_off(uint32_t note)
 {
     uint32_t i, m;
+    rh_note_off(note, 0);
     for (i = 0; i < NV; i++) {
         voice_t *v = &vc[i];
         if (!v->on || v->note != note || !v->gate) continue;
         v->gate = 0;
-        if (v->eng == ENG_KEYS) {        /* the damper: the fundamental and tonebar first, the overtones faster */
-            float rt = 0.06f + (float)P.k_rel / 100.0f * 1.4f;
-            for (m = 0; m < v->nm; m++) mode_damp(v, m, m < 2u ? rt : rt * 0.4f);
-        } else if (v->res == RES_MODAL && v->exc == EXC_BOW) {   /* the bow lifts: the body rings on */
+        if (v->res == RES_MODAL && v->exc == EXC_BOW) {   /* the bow lifts: the body rings on */
             mode_set(v, v->pm, v->w[v->pm] * FS / TWO_PI, v->bt60, v->wt[v->pm]);
         } else if (v->res == RES_MODAL && v->exc <= EXC_STRIKE) {
             float rt = 0.08f + (float)P.rel / 100.0f * 2.5f;
@@ -351,28 +333,6 @@ static float voice_tick(voice_t *v)
 {
     float out = 0.0f, e = 0.0f, nz;
     uint32_t m, t = v->t++;
-    if (v->eng == ENG_KEYS) {
-        float p = t < (uint32_t)v->tc ? fm_sinf(PI_F * (float)t / v->tc) * v->pamp : 0.0f, X = 0.0f, V, q, r2;
-        for (m = 0; m < 4u; m++) {
-            float zr = v->zr[m], zi = v->zi[m];
-            v->zr[m] = zr * v->cr[m] - zi * v->ci[m] + p * v->wt[m];
-            v->zi[m] = zr * v->ci[m] + zi * v->cr[m];
-        }
-        X = v->zi[0] + v->zi[1] * 0.35f + v->zi[2] * 0.06f + v->zi[3] * 0.012f;
-        V = (X - v->xprev) * v->vnorm;
-        v->xprev = X;
-        /* the pickup: d(flux)/dt = flux'(x) * dx/dt, flux' ~ (x + o) / ((x + o)^2 + 1)^1.5, the gap as the unit */
-        q = X * v->A + v->O;
-        r2 = q * q + 1.0f;
-        out = V * v->vel * q / (r2 * fm_sqrtf(r2)) * v->pnorm;   /* louder with velocity, clean when soft */
-        out *= 0.55f;
-        if (t < 900u) {                  /* the hammer's knock */
-            nz = rnd(&v->rng);
-            v->ex_lp += (nz - v->ex_lp) * 0.08f;
-            out += v->ex_lp * v->thump * (1.0f - (float)t / 900.0f);
-        }
-        return out;
-    }
     /* ---- PHYS: the exciter ---- */
     nz = rnd(&v->rng);
     {
@@ -552,13 +512,16 @@ static volatile uint32_t lvl_w;
 #ifdef PLAT_HOST
 static float dbg_bus;
 #endif
+#define KEYS_G (2.1f / 32768.0f)         /* its hardest note near 0.45 in the mix; it has 30 dB of touch under that */
+static int32_t keys_mono[256];
+static volatile uint32_t keys_bits;
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
     float gain = (float)master_q12 / 4096.0f * 8300000.0f, pk = 0.0f;
     uint32_t i, k, on = 0;
-    while (ev_r != ev_w) {               /* new events, some to wait (strum) */
-        uint32_t e = evq[ev_r % EVQ];
-        ev_r++;
+    while (kq_r != kq_w) {               /* new events, some to wait (strum) */
+        uint32_t e = kq[kq_r % EVQ];
+        kq_r++;
         if ((e >> 16) == 0u) {
             if (e & 128u) do_note_off(e & 127u); else do_note_on(e & 127u, (e >> 8) & 127u);
         } else if (npend < 48u) { pend[npend].e = e & 0xFFFFu; pend[npend].left = (int32_t)(e >> 16); npend++; }
@@ -571,6 +534,8 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             pend[k] = pend[--npend];
         } else k++;
     }
+    rh_render(keys_mono, n);             /* the tine piano's block (Q15; silent: zeros) */
+    keys_bits = rh_active_bits;
     for (i = 0; i < n; i++) {
         float l = 0.0f, r = 0.0f;
         for (k = 0; k < NV; k++) {
@@ -594,6 +559,10 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             }
         }
         l *= 0.5f; r *= 0.5f;
+        {                                /* the tine piano: mid, and its side when SPREAD is on */
+            float m = (float)keys_mono[i] * KEYS_G, sd = rh_side_on ? (float)rh_side[i] * KEYS_G : 0.0f;
+            l += m + sd; r += m - sd;
+        }
 #ifdef PLAT_HOST
         if (fm_fabsf(l) > dbg_bus) dbg_bus = fm_fabsf(l);
 #endif
@@ -606,7 +575,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     for (k = 0; k < NV; k++) {           /* finished voices go quiet */
         voice_t *v = &vc[k];
         if (!v->on) continue;
-        if (v->lvl < 0.00004f && v->t > 4410u && (!v->gate || (v->eng == ENG_KEYS || v->exc <= EXC_STRIKE))) {
+        if (v->lvl < 0.00004f && v->t > 4410u && (!v->gate || v->exc <= EXC_STRIKE)) {
             uint32_t m, still = 0;
             for (m = 0; m < v->nm; m++) if (fm_fabsf(v->zi[m]) + fm_fabsf(v->zr[m]) > 0.0002f) still = 1;
             if (!still) v->on = 0;
@@ -619,10 +588,34 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     lvl_w = (lvl_w + 1u) % 232u;
 }
 
+/* the KEYS knobs to Frodhes's engine (the main loop; its laws, params.c there): 0..100 here, 0..127 there, 50 = its
+ * middle (64). The coefficient cache follows DECAY and DAMPER (rh_cc_poll: a second buffer, published whole) */
+static int32_t keys_rel_k(int32_t v)     /* (Frodhes params.c rel_k: above the middle the product of two table steps) */
+{
+    int32_t x = v - 64, a = x / 2;
+    if (v <= 64) return (int32_t)DECAY_K[v < 0 ? 0 : v];
+    return (int32_t)(((uint64_t)DECAY_K[64 + a] * DECAY_K[64 + x - a]) >> 16);
+}
+static int32_t k127(uint32_t v) { uint32_t x = (v * 128u + 50u) / 100u; return (int32_t)(x > 127u ? 127u : x); }
+static void keys_apply(void)
+{
+    int32_t v = k127(P.k_tone);
+    rh_tone_off = v <= 64 ? (v - 64) * (1 << 18) : (v - 64) * RH_TONE_UP;
+    v = k127(P.k_bark); rh_bark_s = (int32_t)KN_P64(v); rh_bark_g = (int32_t)KN_P64I(v);
+    v = k127(P.k_bell); rh_bell = (int32_t)KN_P32(v);
+    rh_k_decay = (int32_t)DECAY_K[k127(P.k_decay)];
+    rh_k_rel = keys_rel_k(k127(P.k_rel));
+    rh_type = P.k_type & 3u;
+    rh_thump = KN_THUMP[48]; rh_felt = KN_FELT[48]; rh_knock = KN_KNOCK[48]; rh_pnz = KN_PEDAL[48];   /* NOISE at its default */
+    rh_spread = 56;
+    rh_cc_poll();
+}
+
 void app_panic(void)
 {
     uint32_t i;
     for (i = 0; i < NV; i++) vc[i].on = 0;
+    rh_post(EV_ALL_OFF, 0, 1);
     npend = 0;
 }
 
@@ -895,14 +888,15 @@ static void page_to(uint32_t p)
     app_say(PAGE_NAME[p], "");
 }
 
-static void engine_step(int32_t e)       /* ALGO: KEYS, STRING, TUBE, MODAL */
+static const char *const KEYS_TYPE[4] = {"STAGE 77", "SUITCASE", "EARLY FELT", "BELL DYNO"};
+static void engine_step(int32_t e)       /* ALGO, the model: the piano's four TYPEs, then STRING, TUBE, MODAL */
 {
-    int32_t cur = P.eng == ENG_KEYS ? 0 : 1 + P.res;
-    cur = clamp(cur + (e > 0 ? 1 : -1), 0, 3);
-    if (cur == 0) P.eng = ENG_KEYS;
-    else { P.eng = ENG_PHYS; P.res = (uint8_t)(cur - 1); if (P.res == RES_TUBE && P.exc == EXC_STRIKE) P.exc = EXC_BLOW; }
+    int32_t cur = P.eng == ENG_KEYS ? P.k_type : 4 + P.res;
+    cur = clamp(cur + (e > 0 ? 1 : -1), 0, 6);
+    if (cur < 4) { P.eng = ENG_KEYS; P.k_type = (uint8_t)cur; }
+    else { P.eng = ENG_PHYS; P.res = (uint8_t)(cur - 4); if (P.res == RES_TUBE && P.exc == EXC_STRIKE) P.exc = EXC_BLOW; }
     ses_dirty = 1;
-    app_say(cur == 0 ? "KEYS" : RES_NAME[cur - 1], cur == 0 ? "TINE PIANO" : "PHYSICAL");
+    app_say(cur < 4 ? KEYS_TYPE[cur] : RES_NAME[cur - 4], cur < 4 ? "KEYS" : "PHYSICAL");
 }
 
 /* the audition: four chords around the key, two beats each at 84 BPM, played through the chord engine */
@@ -1002,8 +996,9 @@ static void draw_header(void)
         if (P.ch_on && chord.n > 1) cv_text(150, 6, &FONT_B, chord.name, ac);
     }
     for (i = 0; i < NV; i++) {           /* the voices: lit while they sound */
-        uint32_t lvl = (uint32_t)(vc[i].lvl * 2000.0f);
-        cv_rect(196 + (int32_t)(i % 4u) * 10, 4 + (int32_t)(i / 4u) * 9, 6, 6, (on >> i & 1u) ? dim565(ac, 2u + (lvl > 6u ? 6u : lvl), 8) : C_LINE);
+        uint32_t lvl = (uint32_t)(vc[i].lvl * 2000.0f), kon = keys_bits >> i & 1u;
+        if (kon) lvl = rv[i].lvl0 > 0 ? (uint32_t)(6.0f * (float)rv[i].lvl / (float)rv[i].lvl0) : 0u;
+        cv_rect(196 + (int32_t)(i % 4u) * 10, 4 + (int32_t)(i / 4u) * 9, 6, 6, ((on >> i & 1u) || kon) ? dim565(ac, 2u + (lvl > 6u ? 6u : lvl), 8) : C_LINE);
     }
     for (i = 0; i < NPAGE; i++)
         cv_rect(8 + (int32_t)i * 57, 27, 52, 3, i == ui.page ? ac : C_LINE);
@@ -1015,12 +1010,13 @@ static void draw_tines(uint16_t ac)
 {
     uint32_t i, s;
     for (i = 0; i < NV; i++) {
-        voice_t *v = &vc[i];
-        int32_t cx = 16 + (int32_t)i * 29, base = 128, on = v->on && v->eng == ENG_KEYS;
+        const rh_voice_t *v = &rv[i];    /* Frodhes's voices (read as they are; the render owns them) */
+        int32_t cx = 16 + (int32_t)i * 29, base = 128, on = (keys_bits >> i & 1u) != 0u;
         float note = on ? (float)v->note : 48.0f + (float)i * 4.0f, amp, d;
+        float ring = on && v->lvl0 > 0 ? fm_minf(1.0f, (float)v->lvl / (float)v->lvl0) * ((float)v->vel / 127.0f) : 0.0f;
         int32_t L = (int32_t)fm_clampf(112.0f - (note - 36.0f) * 1.1f, 36.0f, 110.0f), px = 0, py = base;
         uint16_t col;
-        amp = on ? fm_minf(13.0f, fm_sqrtf(v->lvl) * 40.0f) : 0.0f;
+        amp = fm_minf(13.0f, fm_sqrtf(ring) * 15.0f);
         ui.tine_ph[i] += 1.9f + note * 0.013f;
         d = amp * fm_sinf(ui.tine_ph[i]);
         if (amp > 1.0f) {                                          /* the blur of its swing either side */
@@ -1045,11 +1041,11 @@ static void draw_tines(uint16_t ac)
             px = x; py = y;
         }
         {                                                          /* the pickup, lit by the signal */
-            uint32_t glow = on ? (uint32_t)fm_minf(8.0f, v->lvl * 300.0f) : 0u;
+            uint32_t glow = (uint32_t)fm_minf(8.0f, ring * 12.0f);
             cv_rect(cx - 5, base - L - 12, 11, 7, glow ? mix565(C_DIM, ac, 64u + glow * 24u) : C_DIM);
             if (glow > 2u) { cv_rect(cx - 1, base - L - 5, 2, 4, dim565(ac, glow, 8)); }
         }
-        if (on) { char t[6]; note_text(v->note, t); cv_text(cx - 8, 136, &FONT_XS, t, v->gate ? C_WHITE : C_GRAY); }
+        if (on) { char t[6]; note_text(v->note, t); cv_text(cx - 8, 136, &FONT_XS, t, v->held ? C_WHITE : C_GRAY); }
     }
 }
 
@@ -1243,6 +1239,10 @@ static void lights(void)
         int32_t key = (int32_t)vc[k].note - 53 - 12 * ses.oct;
         if (vc[k].on && key >= 0 && key < (int32_t)NKEYS) { if (vc[k].gate) lit |= 1u << key; else dim |= 1u << key; }
     }
+    for (k = 0; k < RH_NV; k++) {
+        int32_t key = (int32_t)rv[k].note - 53 - 12 * ses.oct;
+        if ((keys_bits >> k & 1u) && key >= 0 && key < (int32_t)NKEYS) { if (rv[k].held) lit |= 1u << key; else dim |= 1u << key; }
+    }
     {
         static const uint8_t PB[NPAGE] = {B_HOME, B_EDIT, B_ARP, B_FX};
         b |= 1u << PB[ui.page];
@@ -1263,6 +1263,7 @@ void app_init(void)
         P = FACTORY[0];
     }
     if (ses.oct < -3 || ses.oct > 3) ses.oct = 0;
+    keys_apply();                        /* (the engine's coefficients before any note) */
 }
 
 void app_ui_init(void)
@@ -1278,6 +1279,7 @@ void app_frame(void)
     uint32_t now = plat_ms(), h = 2166136261u, i, j;
     ctl_t c[4];
     input();
+    keys_apply();
     demo_tick(now);
     if (ann_on() && ann_where()) ann_say(PAGE_NAME[ui.page], 0, ANN_NOW);
     ann_tick(now);
@@ -1287,7 +1289,7 @@ void app_frame(void)
     controls(c);
     for (i = 0; i < 4u; i++) for (j = 0; c[i].val[j]; j++) h = (h ^ (uint8_t)c[i].val[j]) * 16777619u;
     for (i = 0; i < 4u; i++) h = (h ^ (ui.touched_at[i] && now - ui.touched_at[i] < 600u)) * 16777619u;
-    h ^= ui.page * 7919u + (uint32_t)P.eng * 131u + P.res * 31u + P.mat;
+    h ^= ui.page * 7919u + (uint32_t)P.eng * 131u + P.res * 31u + P.mat + P.k_type * 977u;
     if (h != last_ft || ui.redraw_all) { last_ft = h; draw_footer(); }
     draw_main();
     ui.redraw_all = 0;
@@ -1304,7 +1306,8 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "chord")) *got = P.ch_on;
     else if (!strcmp(what, "chordn")) *got = (int)chord.n;
     else if (!strcmp(what, "root")) *got = chord.root;
-    else if (!strcmp(what, "voices")) { int n = 0, i; for (i = 0; i < NV; i++) n += vc[i].on; *got = n; }
+    else if (!strcmp(what, "voices")) { int n = 0, i; for (i = 0; i < NV; i++) n += vc[i].on; for (i = 0; i < (int)RH_NV; i++) n += (int)(keys_bits >> i & 1u); *got = n; }
+    else if (!strcmp(what, "type")) *got = P.k_type;
     else if (!strcmp(what, "peak")) *got = (int)(out_peak * 1000.0f);
     else if (!strcmp(what, "loud")) *got = out_peak > 0.005f;
     else if (!strcmp(what, "bus")) { *got = (int)(dbg_bus * 1000.0f); dbg_bus = 0.0f; }   /* the loudest mix before FX, x1000 */
