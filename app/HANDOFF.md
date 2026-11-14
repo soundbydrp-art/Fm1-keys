@@ -46,6 +46,21 @@ soundbydrp-art.github.io/fm1-keys — the emulator; demo audio at /audio/fm1-key
   wood/glass/metal/skin with log-interpolated ratios anchored to the heard mode; strike = half-sine force; bow on a
   body = a locked drive at the note's mode (a model of the result, not the friction itself — a real friction loop
   drifted 50–100 cents) with the driven mode damped while bowed; noise/blow = filtered noise.
+- PHYS realism pass (2026-11-14, after Andy said the other patches stood out next to Frodhes's piano; sources:
+  Jaffe & Smith's Karplus-Strong extensions, Smith's PASP, STK, marimba bar tuning 1:4:10):
+  - every key is a fixed hair out of tune (±2 cents), brighter/duller (±6 %), longer/shorter (±8 %); velocity sets
+    the exciter's brightness (`v->exb`) and shortens the mallet's contact; mallet contact noise on strikes.
+  - plucked/struck strings: loss filter is now the two-point average (1−S)+S·z⁻¹ (S from BRIGHT) so harmonics ring
+    on instead of dying in 0.2 s; a second polarisation (`wgn` line, 0.07 % sharp, quieter, 2.4× the ring) gives the
+    fast-then-slow decay and slow beating; ring time shortens up the keyboard.
+  - bodies after the PHYS mix (`body_set`/`body_tick`): plucked string = soundbox resonances 104/208/415 Hz; bowed =
+    violin 285/460/2600 Hz with a 170 Hz low cut; tube = bell radiation (highs out). Bow and reed get a delayed 5.3 Hz
+    vibrato and noise riding the bow speed / breath pressure.
+  - modal: wood is a tuned marimba bar (1 : 3.98 : 9.92, upper modes heavily damped, fundamental boosted by its
+    tube); near metal the top three modes are detuned twins of the lowest three (the bell's warble); a struck skin's
+    pitch falls after the blow (`glide`, per block).
+  - voice steal fade 5.7 ms; output limit is linear to 0.7 then a soft shoulder (`soft_limit`), not tanh on everything.
+  - Host render now ~2 % of real time, emulator ~5 % (strings run two lines).
 - Gain staging (fixed 2026-11-14 — Andy heard most patches as distorted): the loudest single note of each path peaks
   near 0.3 in the mix (`v->g` in voice_start; host-only `expect bus` reports the mix peak ×1000 and resets it), chords
   of 4 peak 0.26–0.83, the output soft limit is tanh(1.3x). The amp (DRIVE) is unity when soft: tanh(xg)·(1/g + ½(1−1/g)).
@@ -65,9 +80,9 @@ soundbydrp-art.github.io/fm1-keys — the emulator; demo audio at /audio/fm1-key
 - Session (store object at 0xFC000): magic KEY1, params, patch, octave; validated on load.
 
 ## Not done yet (next steps, in order)
-1. Andy's ears on the tour with Frodhes's piano; then refine the PHYS patches with the same lessons (per-register
-   decay, highs dying faster, body/cabinet filters after the resonator, 2× oversampled reed/bow, per-note variation,
-   6 ms steal fades) — research notes in the 2026-11-14 session.
+1. Andy's ears on the tour after the PHYS realism pass (below): which patches still stand out next to the piano.
+   Ideas not yet done: 2× oversampling of the reed and bow tables, a jet (flute) exciter for the tube, sympathetic
+   strings, a body for the struck materials (drum shell), Frodhes's vibes/marimba (`bars.c`, GPL, could be vendored).
 2. BASS engine for hip-hop: 808 (sine + pitch drop + drive), Reese (detuned saws), FM bass, pluck bass; glide/mono;
    "print mode": evenly spaced one-shots up a scale to sample straight into the MPC 1000 (it samples at 40 kHz,
    ~26 s per sample in stock memory, so short notes with gaps for chopping).

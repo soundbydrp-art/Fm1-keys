@@ -57,13 +57,13 @@ static const params_t FACTORY[] = {
     /* STAGE BARK  */ {0, 0, 0,  50, 72, 50, 50, 0, 30, 25, 50,   30, 50, 50, 25, 50, 10, 30,  0, 0, 0, 4, 2,  15, 40, 0, 75, 0},
     /* BELL TINES  */ {0, 0, 0,  58, 45, 70, 55, 25, 50, 0, 50,  30, 50, 50, 25, 50, 10, 30,  1, 0, 0, 5, 2,  40, 60, 20, 80, 3},
     /* NEO SOUL    */ {0, 0, 0,  45, 55, 45, 50, 30, 45, 10, 50,  30, 50, 50, 25, 50, 10, 30,  1, 2, 2, 4, 3,  30, 55, 12, 65, 2},
-    /* NYLON       */ {1, 0, 0,  50, 50, 50, 50, 0, 40, 0, 50,    15, 45, 45, 25, 0, 0, 30,    0, 0, 0, 4, 2,  20, 45, 0, 70, 0},
+    /* NYLON       */ {1, 0, 0,  50, 50, 50, 50, 0, 40, 0, 50,    15, 50, 55, 25, 0, 0, 30,    0, 0, 0, 4, 2,  20, 45, 0, 70, 0},
     /* KOTO        */ {1, 0, 0,  50, 50, 50, 50, 0, 40, 0, 50,    45, 80, 55, 12, 0, 0, 25,    0, 9, 6, 3, 1,  25, 50, 0, 85, 0},
     /* HARP        */ {1, 0, 0,  50, 50, 50, 50, 0, 40, 0, 50,    25, 55, 80, 40, 0, 0, 60,    1, 0, 0, 4, 1,  45, 70, 45, 75, 0},
     /* BOWED       */ {1, 0, 2,  50, 50, 50, 50, 0, 40, 0, 50,    30, 55, 70, 15, 60, 35, 45,  0, 0, 1, 3, 2,  40, 65, 0, 70, 0},
     /* REED        */ {1, 1, 3,  50, 50, 50, 50, 0, 40, 0, 50,    50, 55, 60, 30, 65, 20, 25,  0, 0, 0, 4, 2,  25, 50, 0, 75, 0},
     /* AIR TUBE    */ {1, 1, 4,  50, 50, 50, 50, 0, 40, 0, 50,    30, 70, 70, 30, 50, 45, 40,  0, 0, 0, 4, 2,  45, 65, 0, 80, 0},
-    /* MARIMBA     */ {1, 2, 1,  50, 50, 50, 50, 0, 40, 0, 50,    6, 50, 40, 30, 0, 0, 30,     0, 0, 0, 4, 2,  20, 45, 0, 80, 0},
+    /* MARIMBA     */ {1, 2, 1,  50, 50, 50, 50, 0, 40, 0, 50,    4, 50, 50, 70, 0, 0, 30,     0, 0, 0, 4, 2,  20, 45, 0, 80, 0},
     /* GLASS BOW   */ {1, 2, 2,  50, 50, 50, 50, 0, 40, 0, 50,    33, 60, 75, 35, 55, 60, 60,  1, 0, 4, 3, 2,  55, 75, 0, 85, 0},
     /* TEMPLE BELL */ {1, 2, 1,  50, 50, 50, 50, 0, 40, 0, 50,    67, 65, 85, 35, 0, 0, 50,    0, 0, 0, 4, 2,  50, 80, 0, 85, 0},
     /* HAND DRUM   */ {1, 2, 1,  50, 50, 50, 50, 0, 40, 0, 50,    95, 40, 30, 20, 0, 0, 20,    0, 0, 0, 4, 2,  15, 35, 0, 75, 0},
@@ -100,10 +100,13 @@ typedef struct {
     float vel, f0;
     /* modes: z = z * c + x (complex), displacement = Im z */
     float zr[NMODE], zi[NMODE], cr[NMODE], ci[NMODE], w[NMODE], wt[NMODE], t60[NMODE];
+    float glide;                         /* a skin's pitch falls after the blow (its tension): x(1 + glide), decaying */
     uint8_t nm;
     float tc, pamp;
     /* waveguide */
     float dlen, lp, lpc, apc, apx, apy, loopg, nlen, bph, bc, bt60;
+    float dlen2, lp2, apx2, apy2, loopg2;   /* a string's second polarisation: a hair sharp, quieter, slower to die */
+    float vs, vcs, vdepth, exb;          /* vibrato (a quadrature pair), its depth; the exciter's brightness this note */
     uint8_t pm;
     uint32_t dw;
     /* exciters */
@@ -126,13 +129,14 @@ static uint32_t npend;
 
 /* ============================================================================ materials (modal) === */
 static const float MAT_R[4][NMODE] = {
-    {1.0f, 2.756f, 3.99f, 5.404f, 8.933f, 10.65f, 13.34f, 15.6f, 18.64f, 21.0f, 24.8f, 28.1f},          /* wood bar */
+    {1.0f, 3.98f, 9.92f, 6.3f, 17.6f, 13.1f, 24.9f, 28.0f, 33.8f, 39.2f, 45.5f, 52.0f},                 /* a tuned wood bar
+                                                 * (a marimba's 1 : 4 : 10, then its untuned and torsional modes) */
     {1.0f, 2.32f, 4.25f, 6.63f, 9.38f, 12.5f, 16.0f, 19.9f, 24.1f, 28.7f, 33.6f, 38.9f},               /* glass */
     {0.5f, 1.0f, 1.183f, 1.506f, 2.0f, 2.514f, 2.662f, 3.011f, 4.166f, 5.433f, 6.796f, 8.215f},        /* bell metal */
     {1.0f, 1.594f, 2.136f, 2.296f, 2.653f, 2.918f, 3.156f, 3.501f, 3.6f, 3.652f, 4.06f, 4.154f},        /* membrane */
 };
 static const float MAT_D[4][NMODE] = {
-    {1.0f, 0.45f, 0.35f, 0.25f, 0.15f, 0.1f, 0.08f, 0.06f, 0.05f, 0.04f, 0.03f, 0.03f},
+    {1.0f, 0.3f, 0.14f, 0.1f, 0.07f, 0.06f, 0.05f, 0.04f, 0.035f, 0.03f, 0.025f, 0.02f},
     {1.0f, 0.9f, 0.8f, 0.7f, 0.6f, 0.5f, 0.42f, 0.35f, 0.3f, 0.25f, 0.2f, 0.18f},
     {1.3f, 1.0f, 0.9f, 0.8f, 0.75f, 0.6f, 0.55f, 0.5f, 0.4f, 0.3f, 0.25f, 0.2f},
     {1.0f, 0.6f, 0.5f, 0.45f, 0.4f, 0.35f, 0.3f, 0.28f, 0.25f, 0.22f, 0.2f, 0.18f},
@@ -157,7 +161,16 @@ static void material(float m, float *ratio, float *damp, float *tscale)   /* m 0
         }
     }
     *tscale = MAT_T[a] * (1.0f - f) + MAT_T[a + 1] * f;
+    {   /* near metal the top three modes become twins of the lowest three, a hair sharp: a cast bell is never quite
+         * round, so each partial is a pair that beats (the warble) */
+        float tw = 1.0f - fm_fabsf(x - 2.0f);
+        if (tw > 0.5f) {
+            static const float TWIN[3] = {1.0031f, 1.0019f, 1.0042f};
+            for (i = 0; i < 3u; i++) { ratio[9u + i] = ratio[i] * TWIN[i]; damp[9u + i] = damp[i] * 0.9f; }
+        }
+    }
 }
+static int mat_twins(float m) { float x = m * 3.0f; return 1.0f - fm_fabsf(x - 2.0f) > 0.5f; }
 
 /* ================================================================================== voices === */
 static float mtof(float n) { return 440.0f * fm_exp2f((n - 69.0f) / 12.0f); }
@@ -206,6 +219,16 @@ static float loop_delay(float c, float a, float f)
     return -(ph_lp + ph_ap) / w;
 }
 
+/* the same for a plucked string's loop: its loss filter is the two-point average (1 - S) + S z^-1 (Jaffe and Smith's
+ * decay stretching): at S = 1/2 Karplus and Strong's dull string, near 0 a bright one whose harmonics ring on */
+static float loop_delay_z(float S, float a, float f)
+{
+    float w = TWO_PI * f / FS, cw = fm_cosf(w), sw = fm_sinf(w);
+    float ph_z = -at2(S * sw, (1.0f - S) + S * cw);
+    float ph_ap = at2(-sw, a + cw) - at2(-a * sw, 1.0f + a * cw);
+    return -(ph_z + ph_ap) / w;
+}
+
 static void voice_start(voice_t *v, uint32_t note, float vel, int retrig)
 {
     float f0 = mtof((float)note), n = (float)note;
@@ -216,6 +239,7 @@ static void voice_start(voice_t *v, uint32_t note, float vel, int retrig)
     if (!retrig) {
         for (m = 0; m < NMODE; m++) v->zr[m] = v->zi[m] = 0.0f;
         v->lp = v->apx = v->apy = 0.0f; v->dw = 0; v->hp_x = v->hp_y = 0.0f;
+        v->lp2 = v->apx2 = v->apy2 = 0.0f;
         v->env = 0.0f; v->ex_lp = 0.0f; v->lvl = 0.0f;
         v->rng = 0x9E3779B9u ^ (note * 2654435761u) ^ age_ctr;
         for (m = 0; m < DLMAX; m++) wg[v - vc][m] = 0.0f;
@@ -223,14 +247,28 @@ static void voice_start(voice_t *v, uint32_t note, float vel, int retrig)
     }
     {
         float bright = (float)P.bright / 100.0f, dec = (float)P.decay / 100.0f, mat = (float)P.mat / 100.0f;
+        /* no two notes of an instrument are alike: each key a hair out of tune, a little brighter or duller, longer or
+         * shorter (fixed per key, as a real one's), and no two blows alike either */
+        uint32_t hk = note * 2654435761u;
+        float u1 = (float)(hk >> 8 & 255u) / 127.5f - 1.0f, u2 = (float)(hk >> 16 & 255u) / 127.5f - 1.0f;
+        float u3 = (float)(hk >> 24) / 127.5f - 1.0f, ur = rnd(&v->rng);
+        f0 *= 1.0f + u1 * 0.0012f;       /* +-2 cents */
+        v->f0 = f0;
+        bright = fm_clampf(bright * (1.0f + u2 * 0.06f), 0.0f, 1.0f);
+        v->exb = fm_clampf(bright * (0.5f + 0.5f * vel) * (1.0f + ur * 0.05f), 0.0f, 1.0f);   /* a soft touch is duller */
+        v->vs = 0.0f; v->vcs = 1.0f; v->vdepth = 0.0f; v->glide = 0.0f; v->dlen2 = 0.0f;
         if (v->res == RES_MODAL) {
             float ratio[NMODE], damp[NMODE], ts, pos = 0.08f + (float)P.pos / 100.0f * 0.42f, sum = 0.0f;
-            float t = (0.08f + dec * dec * 6.0f), hz;
+            float t = (0.08f + dec * dec * 6.0f) * (1.0f + u3 * 0.08f), hz;
+            int twins = mat_twins(mat);
             material(mat, ratio, damp, &ts);
             t *= ts * fm_clampf(fm_exp2f(-(n - 60.0f) / 30.0f), 0.4f, 2.0f);
             v->nm = NMODE;
             for (m = 0; m < NMODE; m++) {
-                float wt = fm_fabsf(fm_sinf(PI_F * (float)(m + 1u) * pos)) / fm_sqrtf((float)(m + 1u)) * (0.4f + 0.6f * bright * (m > 2u ? 1.0f : 1.6f));
+                uint32_t src = twins && m >= 9u ? m - 9u : m;        /* (a twin is struck where its pair is) */
+                float wt = fm_fabsf(fm_sinf(PI_F * (float)(src + 1u) * pos)) / fm_sqrtf((float)(src + 1u)) * (0.4f + 0.6f * bright * (src > 2u ? 1.0f : 1.6f));
+                if (twins && m >= 9u) wt *= 0.7f;
+                if (mat < 0.17f && m == 0u) wt *= 1.8f;              /* wood: the tube under the bar sings its note */
                 hz = f0 * ratio[m];
                 mode_set(v, m, hz, t * damp[m] * fm_clampf(fm_powf(200.0f / hz, 0.25f), 0.3f, 1.5f), wt);
                 sum += v->wt[m];
@@ -246,9 +284,10 @@ static void voice_start(voice_t *v, uint32_t note, float vel, int retrig)
             v->bc = 1.0f - t60_r(v->t60[v->pm]);
             v->bph = 0.0f;
             v->cnorm = fm_sqrtf(1.0f - t60_r(t) * t60_r(t));
+            if (mat > 0.83f && v->exc <= EXC_STRIKE) v->glide = 0.012f + 0.05f * vel * vel;   /* skin: the blow stretches it */
         } else {
-            /* waveguide: the loop's damping filter by BRIGHT, stiffness by MATERIAL (string) */
-            float t60 = 0.15f + dec * dec * 12.0f, len;
+            /* waveguide: the loop's damping filter by BRIGHT, stiffness by MATERIAL (string); high strings die sooner */
+            float t60 = (0.15f + dec * dec * 12.0f) * (1.0f + u3 * 0.08f) * fm_clampf(fm_exp2f(-(n - 55.0f) / 22.0f), 0.3f, 1.8f), len;
             v->lpc = 0.12f + bright * 0.85f;
             v->apc = v->res == RES_STRING ? -mat * 0.62f : 0.0f;
             if (v->res == RES_STRING && v->exc == EXC_BOW) {   /* two lines either side of the bow (as STK's Bowed) */
@@ -258,27 +297,39 @@ static void voice_start(voice_t *v, uint32_t note, float vel, int retrig)
                 v->nlen = fm_clampf(len * beta, 2.0f, (float)(DLMAX / 2u) - 4.0f);
                 len -= v->nlen;
                 v->loopg = 0.94f + dec * 0.055f;
+                v->vdepth = 0.0032f;     /* the player's vibrato, once the note has settled */
             } else if (v->res == RES_STRING) {
-                len = FS / f0 - loop_delay(v->lpc, v->apc, f0);
+                float d, len2;
+                v->lpc = 0.02f + 0.5f * fm_powf(1.0f - bright, 1.2f);   /* S: how fast the harmonics die */
+                d = loop_delay_z(v->lpc, v->apc, f0);
+                len = FS / f0 - d;
                 v->loopg = fm_expf(-6.9078f / (t60 * f0));
+                /* the string also moves across the soundboard: that polarisation is a hair sharp, quieter, and loses
+                 * less to the bridge, so the note has a fast first decay and a long, slowly beating aftersound */
+                len2 = FS / (f0 * (1.0007f + 0.0004f * u2)) - d;
+                if (len2 >= 4.0f && len2 < (float)(DLMAX / 2u) - 4.0f) {
+                    v->dlen2 = len2;
+                    v->loopg2 = fm_expf(-6.9078f / (t60 * 2.4f * f0));
+                }
             } else {                     /* the bore: an inverting open end, so half the period */
                 len = FS / (2.0f * f0) - (loop_delay(v->lpc, 0.0f, f0) - 1.0f);   /* (a = 0: no allpass, its sample out) */
                 v->loopg = fm_minf(0.995f, fm_expf(-6.9078f / (t60 * f0 * 2.0f)) + 0.02f);
+                if (v->exc == EXC_BLOW) v->vdepth = 0.0014f;
             }
             v->dlen = fm_clampf(len, 4.0f, (float)DLMAX - 4.0f);
             v->nm = 0;
         }
-        /* exciters */
-        v->tc = (0.25f + (1.0f - bright) * 3.5f) * 0.001f * FS;
+        /* exciters: a harder blow is a shorter contact (the felt or the finger gives less) */
+        v->tc = (0.25f + (1.0f - v->exb) * 3.5f) * (1.0f - 0.35f * vel) * 0.001f * FS;
         v->tc = fm_clampf(v->tc, 3.0f, 0.5f * FS / f0);
         v->pamp = PI_F / (2.0f * v->tc);
         v->ex_len = v->res == RES_MODAL ? 0.004f * FS : v->dlen;
     }
     /* each path's level, measured (expect bus): the loudest single note peaks near 0.3 in the mix, so a six-note
      * chord still has headroom before the amp and the output's soft limit */
-    if (v->res == RES_MODAL) v->g = v->exc <= EXC_STRIKE ? 1.0f : v->exc == EXC_BOW ? 1.25f : 1.3f;
+    if (v->res == RES_MODAL) v->g = v->exc <= EXC_STRIKE ? ((float)P.mat < 17.0f ? 0.6f : 1.0f) : v->exc == EXC_BOW ? 1.25f : 1.3f;
     else if (v->res == RES_TUBE) v->g = v->exc == EXC_BLOW ? 0.46f : 0.24f;
-    else v->g = v->exc == EXC_BOW ? 0.12f : v->exc <= EXC_STRIKE ? 0.75f : 0.5f;
+    else v->g = v->exc == EXC_BOW ? 0.1f : v->exc <= EXC_STRIKE ? 0.9f : 0.5f;
     v->on = 1;
     v->kill = 0;
 }
@@ -324,6 +375,7 @@ static void do_note_off(uint32_t note)
         } else if (v->res != RES_MODAL && v->exc <= EXC_STRIKE) {
             float rt = 0.08f + (float)P.rel / 100.0f * 2.5f;
             v->loopg = fm_minf(v->loopg, fm_expf(-6.9078f / (rt * v->f0)));
+            v->loopg2 = fm_minf(v->loopg2, v->loopg);
         }
     }
 }
@@ -344,12 +396,16 @@ static float voice_tick(voice_t *v)
             if ((float)t < v->ex_len) {
                 float x = (float)t / v->ex_len, pos = 0.08f + (float)P.pos / 100.0f * 0.42f;
                 float tri = x < pos ? x / pos : (1.0f - x) / (1.0f - pos);
-                v->ex_lp += ((tri * 0.8f + nz * (0.15f + bright * 0.5f)) - v->ex_lp) * (0.1f + bright * 0.85f);
+                v->ex_lp += ((tri * 0.8f + nz * (0.1f + v->exb * 0.5f)) - v->ex_lp) * (0.08f + v->exb * 0.87f);
                 e = v->ex_lp * v->vel * (v->res == RES_MODAL ? 0.6f : 0.9f);
             }
             break;
         case EXC_STRIKE:                 /* a mallet: a half-sine of force, shorter when BRIGHT, struck twice for position */
             if ((float)t < v->tc) e = fm_sinf(PI_F * (float)t / v->tc) * v->vel;
+            if (t < 350u) {              /* the mallet's own contact noise: felt, a stick, the hand's slap */
+                v->ex_lp += (nz - v->ex_lp) * (0.1f + v->exb * 0.6f);
+                e += v->ex_lp * v->vel * (0.06f + 0.25f * v->exb) * (1.0f - (float)t / 350.0f) * (v->res == RES_MODAL ? 1.0f / (v->pamp * 2.5f) * 0.25f : 1.0f);
+            }
             if (v->res != RES_MODAL) {
                 float d = (float)t - v->dlen * (0.08f + (float)P.pos / 100.0f * 0.42f);
                 if (d >= 0.0f && d < v->tc) e -= fm_sinf(PI_F * d / v->tc) * v->vel;
@@ -359,6 +415,7 @@ static float voice_tick(voice_t *v)
         default:                         /* bow, blow, noise: held, with an envelope */
             if (v->gate) v->env += (1.0f - v->env) * a_rate * 4.0f;
             else v->env -= v->env * r_rate * 4.0f;
+            v->vs += 0.000755f * v->vcs; v->vcs -= 0.000755f * v->vs;   /* 5.3 Hz */
             if (v->exc == EXC_NOISE || (v->exc == EXC_BLOW && v->res != RES_TUBE)) {
                 v->ex_lp += (nz - v->ex_lp) * (0.05f + bright * 0.9f);
                 e = v->ex_lp * v->env * (0.2f + press * 0.8f) * v->vel * (v->exc == EXC_BOW ? 1.6f : 1.0f);
@@ -390,11 +447,13 @@ static float voice_tick(voice_t *v)
         }
         out *= 0.9f;
     } else {
-        float *dl = wg[v - vc], rp = (float)v->dw - v->dlen, y, f, s, ap;
+        /* (vibrato: the length breathes, in over the note's first half second) */
+        float vib = v->vdepth != 0.0f ? 1.0f + v->vdepth * v->vs * fm_clampf(((float)t - 9000.0f) / 16000.0f, 0.0f, 1.0f) : 1.0f;
+        float *dl = wg[v - vc], rp = (float)v->dw - v->dlen * vib, y, f, s, ap;
         uint32_t i0, i1;
         if (v->res == RES_STRING && v->exc == EXC_BOW) {
             float *dn = wgn[v - vc], rn, br, nr, sv, dv, tb, nv, press = (float)P.press / 100.0f;
-            float vb = v->env * (0.03f + 0.2f * v->vel) * (0.7f + press * 0.6f);
+            float vb = v->env * (0.03f + 0.2f * v->vel) * (0.7f + press * 0.6f) * (1.0f + nz * 0.06f);   /* (the hair's grain) */
             if (rp < 0.0f) rp += (float)DLMAX;
             i0 = (uint32_t)rp; f = rp - (float)i0; i1 = (i0 + 1u) & (DLMAX - 1u);
             y = dl[i0] + (dl[i1] - dl[i0]) * f;                  /* at the bridge */
@@ -423,18 +482,36 @@ static float voice_tick(voice_t *v)
         if (rp < 0.0f) rp += (float)DLMAX;
         i0 = (uint32_t)rp; f = rp - (float)i0; i1 = (i0 + 1u) & (DLMAX - 1u);
         y = dl[i0] + (dl[i1] - dl[i0]) * f;
-        v->lp += v->lpc * (y - v->lp);
         if (v->res == RES_STRING) {
-            ap = v->apc * (v->lp - v->apy) + v->apx;     /* stiffness: dispersion */
-            v->apx = v->lp; v->apy = ap;
+            float fl = y + v->lpc * (v->lp - y);         /* the loss: (1 - S) y + S y[-1] */
+            v->lp = y;
+            ap = v->apc * (fl - v->apy) + v->apx;        /* stiffness: dispersion */
+            v->apx = fl; v->apy = ap;
             s = ap * v->loopg;
             s += e;
             out = y + e * 0.25f;
+            if (v->dlen2 != 0.0f) {
+                float *dn = wgn[v - vc], r2 = (float)v->dw - v->dlen2, y2, a2;
+                uint32_t j0, j1;
+                if (r2 < 0.0f) r2 += (float)DLMAX;
+                j0 = (uint32_t)r2; f = r2 - (float)j0; j0 &= DLMAX / 2u - 1u; j1 = (j0 + 1u) & (DLMAX / 2u - 1u);
+                y2 = dn[j0] + (dn[j1] - dn[j0]) * f;
+                {
+                    float fl2 = y2 + v->lpc * (v->lp2 - y2);
+                    v->lp2 = y2;
+                    a2 = v->apc * (fl2 - v->apy2) + v->apx2;
+                    v->apx2 = fl2; v->apy2 = a2;
+                }
+                dn[v->dw & (DLMAX / 2u - 1u)] = fm_flush(fm_clampf(a2 * v->loopg2 + e * 0.45f, -4.0f, 4.0f));
+                out += y2 * 0.8f;
+            }
         } else {
-            float refl = -v->lp * v->loopg;
+            float refl;
+            v->lp += v->lpc * (y - v->lp);
+            refl = -v->lp * v->loopg;
             if (v->exc == EXC_BLOW) {    /* a reed: breath against the bore's return */
                 float press = (float)P.press / 100.0f, mat = (float)P.mat / 100.0f;
-                float pb = v->env * (0.45f + press * 0.55f) * (0.6f + v->vel * 0.4f) + nz * 0.025f * v->env;
+                float pb = v->env * (0.45f + press * 0.55f) * (0.6f + v->vel * 0.4f) * (1.0f + nz * 0.05f);   /* (the breath's hiss rides the pressure) */
                 float pd = refl - pb, reed = 0.7f - (0.2f + mat * 0.25f) * pd;
                 reed = fm_clampf(reed, -1.0f, 1.0f);
                 s = pb + pd * reed;
@@ -505,6 +582,68 @@ static void effects(float *l, float *r)
     *l = x; *r = y;
 }
 
+/* ====================================================================================== the body === */
+/* a string alone is thin: what is heard is the box it drives. After the PHYS voices' mix: a plucked string's
+ * soundbox (its air and top-plate resonances), a bowed one's (a violin's two body modes and its bridge hill, nothing
+ * below its lowest string), a tube's bell (it lets the highs out and keeps the lows in). Resonators beside the dry
+ * signal; set when the model changes. */
+typedef struct { float b0, a1, a2, g, z1[2], z2[2]; } bq_t;
+static bq_t body_bq[3];
+static float body_dry = 1.0f, body_hpc, body_hpg, body_hp[2];
+static uint8_t body_kind = 255;
+
+static void body_res(bq_t *q, float hz, float Q, float g)   /* a band-pass, unity at its peak (RBJ) */
+{
+    float w = TWO_PI * hz / FS, al = fm_sinf(w) / (2.0f * Q), a0 = 1.0f + al;
+    q->b0 = al / a0; q->a1 = -2.0f * fm_cosf(w) / a0; q->a2 = (1.0f - al) / a0; q->g = g;
+}
+
+static void body_set(void)
+{
+    uint8_t kind = P.eng != ENG_PHYS ? 0 : P.res == RES_STRING ? (P.exc == EXC_BOW ? 2 : 1) : P.res == RES_TUBE ? 3 : 0;
+    uint32_t i;
+    if (kind == body_kind) return;
+    body_kind = kind;
+    for (i = 0; i < 3u; i++) body_bq[i].g = 0.0f;
+    body_dry = 1.0f; body_hpc = 0.0f; body_hpg = 0.0f;
+    if (kind == 1) {
+        body_res(&body_bq[0], 104.0f, 9.0f, 0.9f); body_res(&body_bq[1], 208.0f, 8.0f, 0.7f); body_res(&body_bq[2], 415.0f, 6.0f, 0.4f);
+        body_dry = 0.8f;
+    } else if (kind == 2) {
+        body_res(&body_bq[0], 285.0f, 10.0f, 1.0f); body_res(&body_bq[1], 460.0f, 9.0f, 0.8f); body_res(&body_bq[2], 2600.0f, 2.5f, 0.7f);
+        body_dry = 0.0f; body_hpc = TWO_PI * 170.0f / FS; body_hpg = 0.55f;   /* (the dry signal through the low cut) */
+    } else if (kind == 3) {
+        body_dry = 0.3f; body_hpc = TWO_PI * 1100.0f / FS; body_hpg = 1.1f;
+    }
+}
+
+static inline float body_tick(float x, uint32_t ch)
+{
+    float y = x * body_dry;
+    uint32_t i;
+    if (body_hpg != 0.0f) { body_hp[ch] += (x - body_hp[ch]) * body_hpc; y += (x - body_hp[ch]) * body_hpg; }
+    for (i = 0; i < 3u; i++) {
+        bq_t *q = &body_bq[i];
+        float o;
+        if (q->g == 0.0f) continue;
+        o = q->b0 * x + q->z1[ch];       /* (transposed direct form II; b1 = 0, b2 = -b0) */
+        q->z1[ch] = q->z2[ch] - q->a1 * o;
+        q->z2[ch] = -q->b0 * x - q->a2 * o;
+        q->z1[ch] = fm_flush(q->z1[ch]); q->z2[ch] = fm_flush(q->z2[ch]);
+        y += o * q->g;
+    }
+    return y;
+}
+
+/* the output's limit: straight up to 0.7 of full scale, then a soft shoulder to 1 (quiet chords pass untouched) */
+static inline float soft_limit(float x)
+{
+    float a = fm_fabsf(x);
+    if (a <= 0.7f) return x;
+    a = 0.7f + 0.3f * fm_tanhf((a - 0.7f) / 0.3f);
+    return x < 0.0f ? -a : a;
+}
+
 /* ======================================================================================= render === */
 static volatile uint8_t lvl_hist[232];
 static volatile uint32_t lvl_w;
@@ -534,6 +673,18 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             pend[k] = pend[--npend];
         } else k++;
     }
+    for (k = 0; k < NV; k++) {           /* a struck skin's pitch settles (once a block) */
+        voice_t *v = &vc[k];
+        uint32_t m;
+        if (!v->on || v->glide == 0.0f) continue;
+        if (v->glide < 0.0003f) v->glide = 0.0f;   /* (the last pass: back on the note exactly) */
+        for (m = 0; m < v->nm; m++) {
+            float rr = fm_sqrtf(v->cr[m] * v->cr[m] + v->ci[m] * v->ci[m]), w = v->w[m] * (1.0f + v->glide);
+            v->cr[m] = rr * fm_cosf(w); v->ci[m] = rr * fm_sinf(w);
+        }
+        v->glide *= 0.94f;               /* (a block is 2.9 ms: gone in about 50 ms) */
+    }
+    body_set();
     rh_render(keys_mono, n);             /* the tine piano's block (Q15; silent: zeros) */
     keys_bits = rh_active_bits;
     for (i = 0; i < n; i++) {
@@ -543,9 +694,9 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             float s;
             if (!v->on) continue;
             s = voice_tick(v) * v->g;
-            if (v->kill) {               /* stolen: a 2 ms fade, then the waiting note */
-                s *= 1.0f - (float)(v->kill) / 90.0f;
-                if (++v->kill >= 90u) { voice_start(v, v->pend_note, (float)(v->pend_vel ? v->pend_vel : 1u) / 127.0f, 0); }
+            if (v->kill) {               /* stolen: a 5.7 ms fade, then the waiting note */
+                s *= 1.0f - (float)(v->kill) / 250.0f;
+                if (++v->kill >= 250u) { voice_start(v, v->pend_note, (float)(v->pend_vel ? v->pend_vel : 1u) / 127.0f, 0); }
             }
             /* a little stereo: lower notes left of centre, higher right */
             {
@@ -559,6 +710,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             }
         }
         l *= 0.5f; r *= 0.5f;
+        if (body_kind) { l = body_tick(l, 0); r = body_tick(r, 1); }
         {                                /* the tine piano: mid, and its side when SPREAD is on */
             float m = (float)keys_mono[i] * KEYS_G, sd = rh_side_on ? (float)rh_side[i] * KEYS_G : 0.0f;
             l += m + sd; r += m - sd;
@@ -569,8 +721,8 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         effects(&l, &r);
         if (fm_fabsf(l) > pk) pk = fm_fabsf(l);
         if (fm_fabsf(r) > pk) pk = fm_fabsf(r);
-        lr[2 * i] = (int32_t)(fm_tanhf(l * 1.3f) * gain);
-        lr[2 * i + 1] = (int32_t)(fm_tanhf(r * 1.3f) * gain);
+        lr[2 * i] = (int32_t)(soft_limit(l * 1.2f) * gain);
+        lr[2 * i + 1] = (int32_t)(soft_limit(r * 1.2f) * gain);
     }
     for (k = 0; k < NV; k++) {           /* finished voices go quiet */
         voice_t *v = &vc[k];
