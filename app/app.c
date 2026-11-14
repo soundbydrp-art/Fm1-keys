@@ -231,8 +231,10 @@ static void voice_start(voice_t *v, uint32_t note, float vel, int retrig)
         v->tc = fm_clampf(v->tc, 4.0f, 0.45f * FS / f0);   /* never longer than half a period: that cancels the note */
         v->pamp = PI_F / (2.0f * v->tc);
         /* the pickup: the swing against the gap grows with velocity and BARK; TONE sets where the tine sits */
-        v->A = 0.08f + fm_powf(vel, 1.6f) * (0.25f + (float)P.k_bark / 100.0f * 1.7f);
-        v->O = 0.12f + (float)P.k_tone / 100.0f * 1.25f;
+        /* (the tine's swing, in units of the gap, grows with velocity; it stays on the near side of the pole, so a
+         * hard note bends the wave lopsided, the bark, but never folds it) */
+        v->O = 0.3f + (float)P.k_tone / 100.0f * 0.5f;
+        v->A = v->O * (0.15f + (float)P.k_bark / 100.0f * 0.55f) * vel;
         v->pnorm = (v->O * v->O + 1.0f) * fm_sqrtf(v->O * v->O + 1.0f) / v->O;
         v->vnorm = FS / (TWO_PI * f0);
         v->thump = vel * 0.05f;
@@ -289,11 +291,12 @@ static void voice_start(voice_t *v, uint32_t note, float vel, int retrig)
         v->pamp = PI_F / (2.0f * v->tc);
         v->ex_len = v->res == RES_MODAL ? 0.004f * FS : v->dlen;
     }
-    /* each path's level, measured: a note at velocity 100 peaks near the same height (tests/levels) */
-    if (v->eng == ENG_KEYS) v->g = 5.5f;
-    else if (v->res == RES_MODAL) v->g = v->exc <= EXC_STRIKE ? 5.0f : v->exc == EXC_BOW ? 3.0f : 4.0f;
-    else if (v->res == RES_TUBE) v->g = v->exc == EXC_BLOW ? 1.1f : 0.8f;
-    else v->g = v->exc == EXC_BOW ? 0.35f : v->exc <= EXC_STRIKE ? 3.2f : 1.5f;
+    /* each path's level, measured (expect bus): the loudest single note peaks near 0.3 in the mix, so a six-note
+     * chord still has headroom before the amp and the output's soft limit */
+    if (v->eng == ENG_KEYS) v->g = 0.85f;
+    else if (v->res == RES_MODAL) v->g = v->exc <= EXC_STRIKE ? 1.0f : v->exc == EXC_BOW ? 1.25f : 1.3f;
+    else if (v->res == RES_TUBE) v->g = v->exc == EXC_BLOW ? 0.46f : 0.24f;
+    else v->g = v->exc == EXC_BOW ? 0.12f : v->exc <= EXC_STRIKE ? 0.75f : 0.5f;
     v->on = 1;
     v->kill = 0;
 }
@@ -361,7 +364,7 @@ static float voice_tick(voice_t *v)
         /* the pickup: d(flux)/dt = flux'(x) * dx/dt, flux' ~ (x + o) / ((x + o)^2 + 1)^1.5, the gap as the unit */
         q = X * v->A + v->O;
         r2 = q * q + 1.0f;
-        out = V * v->A * q / (r2 * fm_sqrtf(r2)) * v->pnorm / v->A;
+        out = V * v->vel * q / (r2 * fm_sqrtf(r2)) * v->pnorm;   /* louder with velocity, clean when soft */
         out *= 0.55f;
         if (t < 900u) {                  /* the hammer's knock */
             nz = rnd(&v->rng);
@@ -504,9 +507,9 @@ static void effects(float *l, float *r)
     uint32_t i;
     if (P.eng == ENG_KEYS) {
         if (P.k_drive) {                 /* the amp */
-            float g = 1.0f + (float)P.k_drive / 100.0f * 5.0f;
-            x = fm_tanhf(x * g) / fm_sqrtf(g) * 1.3f;
-            y = fm_tanhf(y * g) / fm_sqrtf(g) * 1.3f;
+            float g = 1.0f + (float)P.k_drive / 100.0f * 6.0f, mk = 1.0f / g + 0.5f * (1.0f - 1.0f / g);
+            x = fm_tanhf(x * g) * mk;    /* unity when soft: it only bites on hard notes and big chords */
+            y = fm_tanhf(y * g) * mk;
         }
         if (P.k_trem) {                  /* stereo tremolo: the sound swings side to side */
             float d = (float)P.k_trem / 100.0f, sn;
@@ -546,6 +549,9 @@ static void effects(float *l, float *r)
 static volatile uint8_t lvl_hist[232];
 static volatile uint32_t lvl_w;
 
+#ifdef PLAT_HOST
+static float dbg_bus;
+#endif
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
     float gain = (float)master_q12 / 4096.0f * 8300000.0f, pk = 0.0f;
@@ -588,11 +594,14 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
             }
         }
         l *= 0.5f; r *= 0.5f;
+#ifdef PLAT_HOST
+        if (fm_fabsf(l) > dbg_bus) dbg_bus = fm_fabsf(l);
+#endif
         effects(&l, &r);
         if (fm_fabsf(l) > pk) pk = fm_fabsf(l);
         if (fm_fabsf(r) > pk) pk = fm_fabsf(r);
-        lr[2 * i] = (int32_t)(fm_tanhf(l * 0.9f) * gain);
-        lr[2 * i + 1] = (int32_t)(fm_tanhf(r * 0.9f) * gain);
+        lr[2 * i] = (int32_t)(fm_tanhf(l * 1.3f) * gain);
+        lr[2 * i + 1] = (int32_t)(fm_tanhf(r * 1.3f) * gain);
     }
     for (k = 0; k < NV; k++) {           /* finished voices go quiet */
         voice_t *v = &vc[k];
@@ -1297,7 +1306,8 @@ int app_expect(const char *what, int *got)
     else if (!strcmp(what, "root")) *got = chord.root;
     else if (!strcmp(what, "voices")) { int n = 0, i; for (i = 0; i < NV; i++) n += vc[i].on; *got = n; }
     else if (!strcmp(what, "peak")) *got = (int)(out_peak * 1000.0f);
-    else if (!strcmp(what, "loud")) *got = out_peak > 0.02f;
+    else if (!strcmp(what, "loud")) *got = out_peak > 0.005f;
+    else if (!strcmp(what, "bus")) { *got = (int)(dbg_bus * 1000.0f); dbg_bus = 0.0f; }   /* the loudest mix before FX, x1000 */
     else if (!strcmp(what, "dirty")) *got = ses_dirty;
     else if (!strcmp(what, "oct")) *got = ses.oct;
     else return 0;

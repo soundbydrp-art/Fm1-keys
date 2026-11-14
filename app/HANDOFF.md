@@ -1,6 +1,6 @@
 # FM-1 KEYS — handoff
 
-Paste this into a new session to resume. Last updated 2026-11-13 (first build, 0.1-dev, emulator only).
+Paste this into a new session to resume. Last updated 2026-11-14 (0.1-dev, emulator only; distortion fix after Andy's first listen).
 
 ## What it is
 Andy's own firmware for his M-VAVE FM-1 (newer hardware: UC25HQ80 flash, JEDEC B3 60 14 — current fm1-base accepts
@@ -37,7 +37,12 @@ soundbydrp-art.github.io/fm1-keys — the emulator; demo audio at /audio/fm1-key
   wood/glass/metal/skin with log-interpolated ratios anchored to the heard mode; strike = half-sine force; bow on a
   body = a locked drive at the note's mode (a model of the result, not the friction itself — a real friction loop
   drifted 50–100 cents) with the driven mode damped while bowed; noise/blow = filtered noise.
-- Per-path gains measured so a velocity-100 note peaks alike (KEYS 5.5, modal strike 5, etc.) — `v->g` in voice_start.
+- Gain staging (fixed 2026-11-14 — Andy heard most patches as distorted): the loudest single note of each path peaks
+  near 0.3 in the mix (`v->g` in voice_start; host-only `expect bus` reports the mix peak ×1000 and resets it), chords
+  of 4 peak 0.26–0.83, the output soft limit is tanh(1.3x). The amp (DRIVE) is unity when soft: tanh(xg)·(1/g + ½(1−1/g)).
+  The pickup used to fold the wave (the tine swung past the flux slope's peak) and ignored velocity; now the swing is
+  O·(0.15 + 0.55·BARK)·velocity around O = 0.3 + 0.5·TONE, always on the near side of the pole, and the output scales
+  with velocity: soft notes are clean (3rd harmonic −59 dB at C4), BARK adds a lopsided 2nd harmonic (−25 dB).
 - Measured (tests and renders): KEYS, strings, tube, bowed string within ±5 cents C2–C6; four-note chords peak
   ~0.35–0.48 of full scale at full master; host render 1.2 % of real time; emulator 1–2 % CPU on a desktop.
 - Chords: diatonic stack in thirds on the played note's degree (snapped down into the scale), 3–6 notes; CLOSE,
@@ -51,7 +56,7 @@ soundbydrp-art.github.io/fm1-keys — the emulator; demo audio at /audio/fm1-key
 - Session (store object at 0xFC000): magic KEY1, params, patch, octave; validated on load.
 
 ## Not done yet (next steps, in order)
-1. Andy's ears on the tour (docs/audio) and the emulator: KEYS character, levels, which patches need work.
+1. Andy's ears on the re-rendered tour (docs/audio) after the distortion fix: KEYS character, which patches need work.
 2. BASS engine for hip-hop: 808 (sine + pitch drop + drive), Reese (detuned saws), FM bass, pluck bass; glide/mono;
    "print mode": evenly spaced one-shots up a scale to sample straight into the MPC 1000 (it samples at 40 kHz,
    ~26 s per sample in stock memory, so short notes with gaps for chopping).
